@@ -95,7 +95,7 @@ class Soldier:
 		self.currentBase = currentBase
 		self.nextBase = None
 		self.velocity = [0.0, 0.0]
-		self.isBusy = False
+		self.hasOrder = False
 		self.baseRoute = []
 		self.collisionBox = CollisionBox(self, (-Soldier.collisionSize/2, -Soldier.collisionSize/2), (Soldier.collisionSize, Soldier.collisionSize), gameInstance.mainCollisionIndex)
 		gameInstance.soldierCollisionIndex.append(self.collisionBox)
@@ -162,7 +162,6 @@ class Renderer:
 			t = box.transformRelativeOwner()
 			pygame.draw.rect(window, (0, 255, 0), Renderer.OffsetDim((t.pos[0], t.pos[1], t.scale[0], t.scale[1]), gameInstance.dim), 1)
 
-
 	#if connection rendering gets slow finish this function
 	def SmartRenderBaseConnections(window, dim: tuple[int, int], world: GameWorld):
 		for y in range(0, world.h, 1):
@@ -191,15 +190,14 @@ class FactionAI:
 
 
 class SoldierAI:
-	#this function needs to be broken up
-	def UpdatePosition(soldier: Soldier, gameInstance: "Game"):
+	def Update(soldier: Soldier, gameInstance: "Game"):
 		if soldier.currentBase is not None:
 			soldier.transform.pos = [soldier.currentBase.transform.pos[0], soldier.currentBase.transform.pos[1]]
-			if soldier.isBusy and len(soldier.baseRoute) > 0:
+			if soldier.hasOrder and len(soldier.baseRoute) > 0: # if the soldier is at a base and has another base to travel to next
 				base = soldier.baseRoute.pop(0)
-				SoldierAI.DispatchSoldier(soldier, base, gameInstance)
+				SoldierAI.SetNextBase(soldier, base, gameInstance)
 			elif len(soldier.baseRoute) <= 0:
-				soldier.isBusy = False
+				soldier.hasOrder = False
 
 		elif soldier.nextBase is not None:
 			soldier.transform.pos = [soldier.transform.pos[0] + soldier.velocity[0], soldier.transform.pos[1] + soldier.velocity[1]]
@@ -208,8 +206,8 @@ class SoldierAI:
 				soldier.nextBase = None
 				gameInstance.dispatchedSoldiers.remove(soldier)
 				soldier.velocity = [0.0, 0.0]
-
-	def DispatchSoldier(soldier: Soldier, base: Base, gameInstance: "Game"):
+	
+	def SetNextBase(soldier: Soldier, base: Base, gameInstance: "Game"):
 		if soldier.currentBase is not None and soldier not in gameInstance.dispatchedSoldiers:
 			soldier.currentBase = None
 			soldier.nextBase = base
@@ -251,13 +249,10 @@ class SoldierAI:
 		return []
 	
 	def OrderMove(soldier: Soldier, gameWorld: GameWorld, destination: Base):
-		if not soldier.isBusy and soldier.currentBase is not None:
+		if not soldier.hasOrder and soldier.currentBase is not None:
 			soldier.baseRoute = SoldierAI.FetchRouteToBase(soldier, gameWorld, destination)
-			soldier.isBusy = True
+			soldier.hasOrder = True
 			soldier.baseRoute.pop(0)
-
-	def Update():
-		pass
 
 
 class CollisionTester:
@@ -373,7 +368,7 @@ class Game:
 	def Update(self):
 		CollisionTester.ClearCollisions(self.mainCollisionIndex)
 		CollisionTester.UpdateCollisions(self.mainCollisionIndex)
-		SoldierAI.UpdatePosition(self.elfSoldier, self)
+		SoldierAI.Update(self.elfSoldier, self)
 
 
 	def Render(self):
