@@ -71,6 +71,7 @@ class Task:
 	def __init__(self):
 		self.type = None
 		self.base = None
+		self.baseRoute = deque()
 
 		self.faction = None
 		self.soldier = None
@@ -111,10 +112,56 @@ class Soldier:
 		self.currentBase = currentBase
 		self.nextBase = None
 		self.velocity = [0.0, 0.0]
-		self.hasOrder = False
 		self.baseRoute = []
 		self.collisionBox = CollisionBox(self, (-Soldier.collisionSize/2, -Soldier.collisionSize/2), (Soldier.collisionSize, Soldier.collisionSize), gameInstance.mainCollisionIndex)
 		gameInstance.soldierCollisionIndex.append(self.collisionBox)
+	
+	def UpdatePosition(self):
+		if self.IsStationedAtBase():
+			self.SetPositionToCurrentBase()
+			if self.HasBasesToTravel():
+				self.SetTravelToNextBaseInQueue()
+		else:
+			self.UpdatePositionToVelocity()
+			if self.IsCollidingWithNextBase():
+				self.SetToTargetBase()
+	
+	def HasBasesToTravel(self):
+		return len(self.baseRoute) > 0
+	
+	def IsStationedAtBase(self):
+		return self.currentBase is not None
+	
+	def IsCollidingWithNextBase(self):
+		return self.nextBase.collisionBox in self.collisionBox.collisions
+	
+	def SetTravelToNextBaseInQueue(self):
+		base = self.baseRoute.pop(0)
+		self.currentBase = None
+		self.nextBase = base
+		distanceX = base.transform.pos[0] - self.transform.pos[0]
+		distanceY = base.transform.pos[1] - self.transform.pos[1]
+		distance = sqrt(distanceX*distanceX + distanceY*distanceY)
+		self.velocity = [distanceX/distance * Soldier.moveSpeed, distanceY/distance * Soldier.moveSpeed]
+
+	def SetToTargetBase(self):
+		self.currentBase = self.nextBase
+		self.nextBase = None
+		self.velocity = [0.0, 0.0]
+
+	def SetPositionToCurrentBase(self):
+		self.transform.pos = [self.currentBase.transform.pos[0], self.currentBase.transform.pos[1]]
+
+	def UpdatePositionToVelocity(self):
+		self.transform.pos = [self.transform.pos[0] + self.velocity[0], self.transform.pos[1] + self.velocity[1]]
+	
+	def FetchRouteToBase(self, gameWorld, destination):
+		return Utility.Base_BFS(self.currentBase, destination, gameWorld.bases)
+	
+	def OrderMove(self, gameWorld: GameWorld, destination: Base):
+		if self.IsStationedAtBase():
+			self.baseRoute = self.FetchRouteToBase(gameWorld, destination)
+			self.baseRoute.pop(0)
 
 
 class CollisionBox:
@@ -243,60 +290,7 @@ class FactionAI:
 		pass
 
 class SoldierAI:
-	def UpdatePosition(soldier: Soldier, gameInstance: "Game"):
-		#this is really tough. I want my code to be readable, but I can't decouple messy functions like this
-		if SoldierAI.IsStationedAtBase(soldier):
-			soldier.transform.pos = [soldier.currentBase.transform.pos[0], soldier.currentBase.transform.pos[1]]
-			if soldier.HasOrder() and soldier.HasBasesToTravel(): # if the soldier is at a base and has another base to travel to next
-				base = soldier.baseRoute.pop(0)
-				SoldierAI.SetNextBase(soldier, base, gameInstance)
-			elif len(soldier.baseRoute) <= 0:
-				soldier.hasOrder = False
-
-		else:
-			soldier.transform.pos = [soldier.transform.pos[0] + soldier.velocity[0], soldier.transform.pos[1] + soldier.velocity[1]]
-			if soldier.nextBase.collisionBox in soldier.collisionBox.collisions:
-				soldier.currentBase = soldier.nextBase
-				soldier.nextBase = None
-				soldier.velocity = [0.0, 0.0]
-
-	def SoldierHasBasesToTravel(soldier: "Soldier"):
-		return len(soldier.baseRoute) > 0
-
-	def SoldierHasOrder(soldier: "Soldier"):
-		return soldier.hasOrder
-	
-	def IsStationedAtBase(soldier: "Soldier"):
-		return soldier.currentBase is not None
-
-	def SetNextBaseInQueue(soldier: "Soldier"):
-		if SoldierAI.SoldierHasOrder(soldier) and SoldierAI.SoldierHasBasesToTravel(soldier):
-			pass
-
-	#depricate
-	def SetNextBase(soldier: Soldier, base: Base, gameInstance: "Game"):
-		if soldier.currentBase is not None:
-			soldier.currentBase = None
-			soldier.nextBase = base
-			distanceX = base.transform.pos[0] - soldier.transform.pos[0]
-			distanceY = base.transform.pos[1] - soldier.transform.pos[1]
-			distance = sqrt(distanceX*distanceX + distanceY*distanceY)
-			soldier.velocity = [distanceX/distance * Soldier.moveSpeed, distanceY/distance * Soldier.moveSpeed]
-	
-	def FetchRouteToBase(soldier: Soldier, gameWorld: GameWorld, destination: Base) -> list:
-		if soldier.currentBase is None:
-			raise ValueError(f"Tried to fetch a route for soldier {soldier} when it didn't have a current base.")
-
-		return Utility.Base_BFS(soldier.currentBase, destination, gameWorld.bases)
-	
-	def FindNearestSoldier(faction: "Faction", base: "Base"):
-		pass
-	
-	def OrderMove(soldier: Soldier, gameWorld: GameWorld, destination: Base):
-		if not soldier.hasOrder and soldier.currentBase is not None:
-			soldier.baseRoute = SoldierAI.FetchRouteToBase(soldier, gameWorld, destination)
-			soldier.hasOrder = True
-			soldier.baseRoute.pop(0)
+	pass
 
 
 class CollisionTester:
@@ -402,7 +396,7 @@ class Game:
 		FactionAI.UpdateUnownedAdjacentBases(self.dwarvesFaction, self)
 
 		self.elfSoldier = Soldier(self.elvesFaction, self.gameWorld.GetBase(0, 9), self)
-		SoldierAI.OrderMove(self.elfSoldier, self.gameWorld, self.gameWorld.GetBase(7, 4))
+		self.elfSoldier.OrderMove(self.gameWorld, self.gameWorld.GetBase(7, 4))
 
 	def Input(self):
 		for e in pygame.event.get():
@@ -412,7 +406,7 @@ class Game:
 	def Update(self):
 		CollisionTester.ClearCollisions(self.mainCollisionIndex)
 		CollisionTester.UpdateCollisions(self.mainCollisionIndex)
-		SoldierAI.UpdatePosition(self.elfSoldier, self)
+		self.elfSoldier.UpdatePosition()
 
 
 	def Render(self):
