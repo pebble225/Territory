@@ -27,6 +27,31 @@ class Faction:
 				bases.append(base.west)
 
 		self.unownedAdjacentBases = bases.copy()
+	
+	def AssignClaimTask(self, soldier: "Soldier", base: "Base", gameInstance: "Game"):
+		task = Task.CaptureBase(soldier, base, gameInstance.gameWorld.bases)
+		soldier.currentTask = task
+		self.tasks.append(task)
+	
+	def CreateSoldier(self, gameInstance: "Game"):
+		i = random.randrange(0, len(self.bases))
+
+		soldier = Soldier(self, self.bases[i], gameInstance)
+		self.soldiers.append(soldier)
+	
+	def Update(self, gameInstance: "Game"):
+		self.UpdateUnownedAdjacentBases(gameInstance)
+
+		for soldier in self.soldiers:
+			soldier.Update(gameInstance)
+	
+	def GetAvailableSoldiers(self):
+		soldiers = []
+		for soldier in self.soldiers:
+			if soldier.HasTask():
+				soldiers.append(soldier)
+		return soldiers
+
 
 
 class Base:
@@ -83,6 +108,8 @@ class GameWorld:
 
 
 class Task:
+	CAPTURE = 10
+
 	def __init__(self):
 		self.type = None
 		self.base = None
@@ -90,11 +117,37 @@ class Task:
 
 		self.faction = None
 		self.soldier = None
+
+		self.destroyFlag = False
 	
-	def Capture(faction: "Faction", task: "Task", base: "Base"):
-		task.faction = faction
-		task.type = "goto"
+	def CaptureBase(soldier: "Soldier", base: "Base", gameInstance: "Game"):
+		task = Task()
+		task.faction = soldier.faction
+		task.soldier = soldier
+		task.type = Task.CAPTURE
 		task.base = base
+		task.baseRoute = Utility.GetBasePath(soldier.currentBase, base, gameInstance)
+
+		return task
+	
+	def SetDestroy(self, gameInstance: "Game"):
+		self.destroyFlag = True
+		gameInstance.taskDestroyQueue.append(self)
+
+	def Destroy(self):
+		if self.soldier == None or self.faction == None:
+			raise TypeError(f"Task {self} could not be deallocated. Needs existing soldier and faction.")
+		self.soldier.currentTask = None
+		self.faction.tasks.remove(self)
+	
+	def GetBase(self):
+		return self.base
+	
+	def HasNextBase(self):
+		return len(self.baseRoute) > 0
+	
+	def __del__(self):
+		pass
 
 
 class Transform:
@@ -126,20 +179,28 @@ class Soldier:
 		self.transform = Transform()
 		self.currentBase = currentBase
 		self.nextBase = None
+		self.currentTask = None
 		self.velocity = [0.0, 0.0]
 		self.baseRoute = []
 		self.collisionBox = CollisionBox(self, (-Soldier.collisionSize/2, -Soldier.collisionSize/2), (Soldier.collisionSize, Soldier.collisionSize), gameInstance.mainCollisionIndex)
 		gameInstance.soldierCollisionIndex.append(self.collisionBox)
 	
-	def UpdatePosition(self):
+	def Update(self, gameInstance: "Game"):
 		if self.IsStationedAtBase():
 			self.SetPositionToCurrentBase()
-			if self.HasBasesToTravel():
-				self.SetTravelToNextBaseInQueue()
+			if self.HasTask():
+				if self.currentTask.HasNextBase():
+					self.SetTravelToNextTaskBase()
+				else:
+					BaseOwnershipManager.AssignBase(self.currentTask.base, self.faction)
+					self.currentTask.SetDestroy(gameInstance)
 		else:
 			self.UpdatePositionToVelocity()
 			if self.IsCollidingWithNextBase():
 				self.SetToTargetBase()
+	
+	def HasTask(self):
+		return self.currentTask is not None
 	
 	def HasBasesToTravel(self):
 		return len(self.baseRoute) > 0
@@ -152,6 +213,15 @@ class Soldier:
 	
 	def SetTravelToNextBaseInQueue(self):
 		base = self.baseRoute.pop(0)
+		self.currentBase = None
+		self.nextBase = base
+		distanceX = base.transform.pos[0] - self.transform.pos[0]
+		distanceY = base.transform.pos[1] - self.transform.pos[1]
+		distance = sqrt(distanceX*distanceX + distanceY*distanceY)
+		self.velocity = [distanceX/distance * Soldier.moveSpeed, distanceY/distance * Soldier.moveSpeed]
+	
+	def SetTravelToNextTaskBase(self):
+		base = self.currentTask.baseRoute.popleft()
 		self.currentBase = None
 		self.nextBase = base
 		distanceX = base.transform.pos[0] - self.transform.pos[0]
@@ -217,6 +287,10 @@ class Renderer:
 		pygame.draw.rect(window, soldier.faction.outerColor, (int(pos[0] - Soldier.outerSize/2), int(pos[1] - Soldier.outerSize/2), Soldier.outerSize, Soldier.outerSize))
 		pygame.draw.rect(window, soldier.faction.innerColor, (int(pos[0] - Soldier.innerSize/2), int(pos[1] - Soldier.innerSize/2), Soldier.innerSize, Soldier.innerSize))
 
+	def RenderFactionSoldiers(gameInstance: "Game", faction: "Faction"):
+		for soldier in faction.soldiers:
+			Renderer.RenderSoldier(gameInstance.window, gameInstance.dim, soldier)
+
 	def DumbRenderBaseConnections(window, dim: tuple[int, int], world: GameWorld):
 		lineThickness = 10
 
@@ -251,7 +325,7 @@ class Renderer:
 
 
 class Utility:
-	def Base_BFS(start: Base, end: Base, bases: list["Base"]):
+	def GetBasePath(start: Base, end: Base, bases: list["Base"]):
 		searchQueue = deque()
 		searched = []
 		paths = {}
@@ -260,7 +334,9 @@ class Utility:
 		for i in range(0, len(bases), 1):
 			base = searchQueue.popleft()
 			if base == end:
-				return paths[base]
+				output = deque(paths[base])
+				output.popleft()
+				return output
 			if base.north is not None and base.north not in searched:
 				paths[base.north] = paths[base] + [base.north]
 				searched.append(base.north)
@@ -344,6 +420,13 @@ class BaseOwnershipManager:
 		faction.bases.append(base)
 
 
+class Deallocator:
+	def DestroyTasks(gameInstance: "Game"):
+		while len(gameInstance.taskDestroyQueue) > 0:
+			task = gameInstance.taskDestroyQueue.popleft()
+			task.Destroy()
+
+
 class Game:
 	def __init__(self):
 		self.window = None
@@ -358,11 +441,11 @@ class Game:
 
 		self.soldiers = []
 
+		self.taskDestroyQueue = deque()
+
 		self.nullFaction = None
 		self.elvesFaction = None
 		self.dwarvesFaction = None
-
-		self.elfSoldier = None
 
 		self.gameWorld = None
 
@@ -377,13 +460,14 @@ class Game:
 		GameGenerator.GenerateGridConnections(self.gameWorld)
 
 		BaseOwnershipManager.AssignBase(self.gameWorld.GetBase(0, 9), self.elvesFaction)
-		BaseOwnershipManager.AssignBase(self.gameWorld.GetBase(9, 0), self.dwarvesFaction)
+		BaseOwnershipManager.AssignBase(self.gameWorld.GetBase(9, 9), self.dwarvesFaction)
 
 		self.elvesFaction.UpdateUnownedAdjacentBases(self)
 		self.dwarvesFaction.UpdateUnownedAdjacentBases(self)
 
-		self.elfSoldier = Soldier(self.elvesFaction, self.gameWorld.GetBase(0, 9), self)
-		self.elfSoldier.OrderMove(self.gameWorld, self.gameWorld.GetBase(7, 4))
+		self.elvesFaction.CreateSoldier(self)
+		
+		#self.elvesFaction.AssignClaimTask(self.elfSoldier, self.gameWorld.GetBase(7, 4), self)
 
 	def Input(self):
 		for e in pygame.event.get():
@@ -393,7 +477,8 @@ class Game:
 	def Update(self):
 		CollisionTester.ClearCollisions(self.mainCollisionIndex)
 		CollisionTester.UpdateCollisions(self.mainCollisionIndex)
-		self.elfSoldier.UpdatePosition()
+		self.elvesFaction.Update(self)
+		Deallocator.DestroyTasks(self)
 
 
 	def Render(self):
@@ -402,7 +487,7 @@ class Game:
 		Renderer.DumbRenderBaseConnections(self.window, self.dim, self.gameWorld)
 		Renderer.RenderGameWorld(self.window, self.dim, self.gameWorld)
 
-		Renderer.RenderSoldier(self.window, self.dim, self.elfSoldier)
+		Renderer.RenderFactionSoldiers(self, self.elvesFaction)
 
 		#Renderer.RenderCollisionBoxes(self.window, self)
 
