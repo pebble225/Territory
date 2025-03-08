@@ -10,12 +10,10 @@ class Faction:
 		self.outerColor = outerColor
 		self.bases = []
 		self.soldiers = []
-		self.unownedAdjacentBases = []
 		self.tasks = []
 	
-	def UpdateUnownedAdjacentBases(self, gameInstance: "Game"):
+	def GetUnownedAdjacentBases(self, gameInstance: "Game"):
 		bases = []
-
 		for base in self.bases:
 			if base.north is not None and base.north.faction != self and base.north not in bases:
 				bases.append(base.north)
@@ -25,8 +23,7 @@ class Faction:
 				bases.append(base.south)
 			if base.west is not None and base.west.faction != self and base.west not in bases:
 				bases.append(base.west)
-
-		self.unownedAdjacentBases = bases.copy()
+		return bases
 	
 	def AssignClaimTask(self, soldier: "Soldier", base: "Base", gameInstance: "Game"):
 		task = Task.CaptureBase(soldier, base, gameInstance.gameWorld.bases)
@@ -40,7 +37,15 @@ class Faction:
 		self.soldiers.append(soldier)
 	
 	def Update(self, gameInstance: "Game"):
-		self.UpdateUnownedAdjacentBases(gameInstance)
+		unownedAdjacentBases = self.GetUnownedAdjacentBases(gameInstance)
+		availableSoldiers = self.GetAvailableSoldiers()
+		basesBeingCaptured = self.GetAllCaptureTaskBases()
+		unownedAdjacentBases = Utility.RemoveAllBFromA(unownedAdjacentBases, basesBeingCaptured)
+
+		if len(availableSoldiers) > 0 and len(unownedAdjacentBases) > 0:
+			soldier = availableSoldiers[random.randrange(0, len(availableSoldiers))]
+			base = unownedAdjacentBases[random.randrange(0, len(unownedAdjacentBases))]
+			self.AssignClaimTask(soldier, base, gameInstance)
 
 		for soldier in self.soldiers:
 			soldier.Update(gameInstance)
@@ -48,9 +53,21 @@ class Faction:
 	def GetAvailableSoldiers(self):
 		soldiers = []
 		for soldier in self.soldiers:
-			if soldier.HasTask():
+			if not soldier.HasTask():
 				soldiers.append(soldier)
 		return soldiers
+	
+	def GetAllCaptureTaskBases(self):
+		bases = []
+
+		for task in self.tasks:
+			if task.type == Task.CAPTURE:
+				if task.base in bases:
+					raise Exception(f"Found a duplicate capture task when logging all capture tasks for faction: {self.name}.")
+				else:
+					bases.append(task.base)
+		
+		return bases
 
 
 
@@ -129,7 +146,7 @@ class Task:
 		task.baseRoute = Utility.GetBasePath(soldier.currentBase, base, gameInstance)
 
 		return task
-	
+
 	def SetDestroy(self, gameInstance: "Game"):
 		self.destroyFlag = True
 		gameInstance.taskDestroyQueue.append(self)
@@ -355,6 +372,9 @@ class Utility:
 				searchQueue.append(base.west)
 		return []
 
+	def RemoveAllBFromA(a: list, b: list):
+		return [i for i in a if i not in b]
+
 
 class CollisionTester:
 	def hasCollision(boxA: CollisionBox, boxB: CollisionBox):
@@ -462,9 +482,8 @@ class Game:
 		BaseOwnershipManager.AssignBase(self.gameWorld.GetBase(0, 9), self.elvesFaction)
 		BaseOwnershipManager.AssignBase(self.gameWorld.GetBase(9, 9), self.dwarvesFaction)
 
-		self.elvesFaction.UpdateUnownedAdjacentBases(self)
-		self.dwarvesFaction.UpdateUnownedAdjacentBases(self)
-
+		self.elvesFaction.CreateSoldier(self)
+		self.elvesFaction.CreateSoldier(self)
 		self.elvesFaction.CreateSoldier(self)
 		
 		#self.elvesFaction.AssignClaimTask(self.elfSoldier, self.gameWorld.GetBase(7, 4), self)
@@ -514,6 +533,8 @@ class Game:
 
 		timer = pygame.time.get_ticks()
 
+		reportRefreshRate = False
+
 		self.Start()
 
 		while self.running:
@@ -538,7 +559,8 @@ class Game:
 			nowTimer = pygame.time.get_ticks()
 			if nowTimer - timer > 1000:
 				timer = nowTimer
-				print(f"TPS: {actualTPS}\nFPS: {actualFPS}")
+				if reportRefreshRate:
+					print(f"TPS: {actualTPS}\nFPS: {actualFPS}")
 				actualTPS = 0
 				actualFPS = 0
 
