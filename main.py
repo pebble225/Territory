@@ -12,6 +12,21 @@ class Faction:
 		self.soldiers = []
 		self.unownedAdjacentBases = []
 		self.tasks = []
+	
+	def UpdateUnownedAdjacentBases(self, gameInstance: "Game"):
+		bases = []
+
+		for base in self.bases:
+			if base.north is not None and base.north.faction != self and base.north not in bases:
+				bases.append(base.north)
+			if base.east is not None and base.east.faction != self and base.east not in bases:
+				bases.append(base.east)
+			if base.south is not None and base.south.faction != self and base.south not in bases:
+				bases.append(base.south)
+			if base.west is not None and base.west.faction != self and base.west not in bases:
+				bases.append(base.west)
+
+		self.unownedAdjacentBases = bases.copy()
 
 
 class Base:
@@ -265,34 +280,6 @@ class Utility:
 		return []
 
 
-class FactionAI:
-	def UpdateUnownedAdjacentBases(faction: Faction, gameInstance: "Game"):
-		bases = []
-
-		for base in faction.bases:
-			if base.north is not None and base.north.faction != faction and base.north not in bases:
-				bases.append(base.north)
-			if base.east is not None and base.east.faction != faction and base.east not in bases:
-				bases.append(base.east)
-			if base.south is not None and base.south.faction != faction and base.south not in bases:
-				bases.append(base.south)
-			if base.west is not None and base.west.faction != faction and base.west not in bases:
-				bases.append(base.west)
-
-		faction.unownedAdjacentBases = bases.copy()
-	
-	def GenerateTasks(faction: Faction, gameInstance: "Game"):
-		# generate all possible captures and then number of soldiers
-		pass
-	
-	#tests if a faction has a task to claim a target base
-	def BaseHasClaimTask():
-		pass
-
-class SoldierAI:
-	pass
-
-
 class CollisionTester:
 	def hasCollision(boxA: CollisionBox, boxB: CollisionBox):
 		if boxA.parent.transform is None:
@@ -392,8 +379,8 @@ class Game:
 		BaseOwnershipManager.AssignBase(self.gameWorld.GetBase(0, 9), self.elvesFaction)
 		BaseOwnershipManager.AssignBase(self.gameWorld.GetBase(9, 0), self.dwarvesFaction)
 
-		FactionAI.UpdateUnownedAdjacentBases(self.elvesFaction, self)
-		FactionAI.UpdateUnownedAdjacentBases(self.dwarvesFaction, self)
+		self.elvesFaction.UpdateUnownedAdjacentBases(self)
+		self.dwarvesFaction.UpdateUnownedAdjacentBases(self)
 
 		self.elfSoldier = Soldier(self.elvesFaction, self.gameWorld.GetBase(0, 9), self)
 		self.elfSoldier.OrderMove(self.gameWorld, self.gameWorld.GetBase(7, 4))
