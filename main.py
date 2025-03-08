@@ -5,11 +5,13 @@ from collections import deque
 
 class Faction:
 	def __init__(self, name: str = None, innerColor: list[int, int, int] = None, outerColor: list[int, int, int] = None):
-		self.name = None
+		self.name = name
 		self.innerColor = innerColor
 		self.outerColor = outerColor
 		self.bases = []
+		self.soldiers = []
 		self.unownedAdjacentBases = []
+		self.tasks = []
 
 
 class Base:
@@ -63,6 +65,20 @@ class GameWorld:
 		elif direction == "west":
 			baseA.west = baseB
 			baseB.east = baseA
+
+
+class Task:
+	def __init__(self):
+		self.type = None
+		self.base = None
+
+		self.faction = None
+		self.soldier = None
+	
+	def Capture(faction: "Faction", task: "Task", base: "Base"):
+		task.faction = faction
+		task.type = "goto"
+		task.base = base
 
 
 class Transform:
@@ -172,63 +188,16 @@ class Renderer:
 				base = world.GetBase(x, y)
 
 
-class FactionAI:
-	def UpdateUnownedAdjacentBases(faction: Faction, gameInstance: "Game"):
-		bases = []
-
-		for base in faction.bases:
-			if base.north is not None and base.north.faction != faction and base.north not in bases:
-				bases.append(base.north)
-			if base.east is not None and base.east.faction != faction and base.east not in bases:
-				bases.append(base.east)
-			if base.south is not None and base.south.faction != faction and base.south not in bases:
-				bases.append(base.south)
-			if base.west is not None and base.west.faction != faction and base.west not in bases:
-				bases.append(base.west)
-
-		faction.unownedAdjacentBases = bases.copy()
-
-
-class SoldierAI:
-	def Update(soldier: Soldier, gameInstance: "Game"):
-		if soldier.currentBase is not None:
-			soldier.transform.pos = [soldier.currentBase.transform.pos[0], soldier.currentBase.transform.pos[1]]
-			if soldier.hasOrder and len(soldier.baseRoute) > 0: # if the soldier is at a base and has another base to travel to next
-				base = soldier.baseRoute.pop(0)
-				SoldierAI.SetNextBase(soldier, base, gameInstance)
-			elif len(soldier.baseRoute) <= 0:
-				soldier.hasOrder = False
-
-		elif soldier.nextBase is not None:
-			soldier.transform.pos = [soldier.transform.pos[0] + soldier.velocity[0], soldier.transform.pos[1] + soldier.velocity[1]]
-			if soldier.nextBase.collisionBox in soldier.collisionBox.collisions:
-				soldier.currentBase = soldier.nextBase
-				soldier.nextBase = None
-				gameInstance.dispatchedSoldiers.remove(soldier)
-				soldier.velocity = [0.0, 0.0]
-	
-	def SetNextBase(soldier: Soldier, base: Base, gameInstance: "Game"):
-		if soldier.currentBase is not None and soldier not in gameInstance.dispatchedSoldiers:
-			soldier.currentBase = None
-			soldier.nextBase = base
-			gameInstance.dispatchedSoldiers.append(soldier)
-			distanceX = base.transform.pos[0] - soldier.transform.pos[0]
-			distanceY = base.transform.pos[1] - soldier.transform.pos[1]
-			distance = sqrt(distanceX*distanceX + distanceY*distanceY)
-			soldier.velocity = [distanceX/distance * Soldier.moveSpeed, distanceY/distance * Soldier.moveSpeed]
-	
-	def FetchRouteToBase(soldier: Soldier, gameWorld: GameWorld, destination: Base) -> list:
-		if soldier.currentBase is None:
-			raise ValueError(f"Tried to fetch a route for soldier {soldier} when it didn't have a current base.")
-
+class Utility:
+	def Base_BFS(start: Base, end: Base, bases: list["Base"]):
 		searchQueue = deque()
 		searched = []
 		paths = {}
-		paths[soldier.currentBase] = [soldier.currentBase]
-		searchQueue.append(soldier.currentBase)
-		for i in range(0, len(gameWorld.bases), 1):
+		paths[start] = [start]
+		searchQueue.append(start)
+		for i in range(0, len(bases), 1):
 			base = searchQueue.popleft()
-			if base == destination:
+			if base == end:
 				return paths[base]
 			if base.north is not None and base.north not in searched:
 				paths[base.north] = paths[base] + [base.north]
@@ -247,6 +216,81 @@ class SoldierAI:
 				searched.append(base.west)
 				searchQueue.append(base.west)
 		return []
+
+
+class FactionAI:
+	def UpdateUnownedAdjacentBases(faction: Faction, gameInstance: "Game"):
+		bases = []
+
+		for base in faction.bases:
+			if base.north is not None and base.north.faction != faction and base.north not in bases:
+				bases.append(base.north)
+			if base.east is not None and base.east.faction != faction and base.east not in bases:
+				bases.append(base.east)
+			if base.south is not None and base.south.faction != faction and base.south not in bases:
+				bases.append(base.south)
+			if base.west is not None and base.west.faction != faction and base.west not in bases:
+				bases.append(base.west)
+
+		faction.unownedAdjacentBases = bases.copy()
+	
+	def GenerateTasks(faction: Faction, gameInstance: "Game"):
+		# generate all possible captures and then number of soldiers
+		pass
+	
+	#tests if a faction has a task to claim a target base
+	def BaseHasClaimTask():
+		pass
+
+class SoldierAI:
+	def UpdatePosition(soldier: Soldier, gameInstance: "Game"):
+		#this is really tough. I want my code to be readable, but I can't decouple messy functions like this
+		if SoldierAI.IsStationedAtBase(soldier):
+			soldier.transform.pos = [soldier.currentBase.transform.pos[0], soldier.currentBase.transform.pos[1]]
+			if soldier.HasOrder() and soldier.HasBasesToTravel(): # if the soldier is at a base and has another base to travel to next
+				base = soldier.baseRoute.pop(0)
+				SoldierAI.SetNextBase(soldier, base, gameInstance)
+			elif len(soldier.baseRoute) <= 0:
+				soldier.hasOrder = False
+
+		else:
+			soldier.transform.pos = [soldier.transform.pos[0] + soldier.velocity[0], soldier.transform.pos[1] + soldier.velocity[1]]
+			if soldier.nextBase.collisionBox in soldier.collisionBox.collisions:
+				soldier.currentBase = soldier.nextBase
+				soldier.nextBase = None
+				soldier.velocity = [0.0, 0.0]
+
+	def SoldierHasBasesToTravel(soldier: "Soldier"):
+		return len(soldier.baseRoute) > 0
+
+	def SoldierHasOrder(soldier: "Soldier"):
+		return soldier.hasOrder
+	
+	def IsStationedAtBase(soldier: "Soldier"):
+		return soldier.currentBase is not None
+
+	def SetNextBaseInQueue(soldier: "Soldier"):
+		if SoldierAI.SoldierHasOrder(soldier) and SoldierAI.SoldierHasBasesToTravel(soldier):
+			pass
+
+	#depricate
+	def SetNextBase(soldier: Soldier, base: Base, gameInstance: "Game"):
+		if soldier.currentBase is not None:
+			soldier.currentBase = None
+			soldier.nextBase = base
+			distanceX = base.transform.pos[0] - soldier.transform.pos[0]
+			distanceY = base.transform.pos[1] - soldier.transform.pos[1]
+			distance = sqrt(distanceX*distanceX + distanceY*distanceY)
+			soldier.velocity = [distanceX/distance * Soldier.moveSpeed, distanceY/distance * Soldier.moveSpeed]
+	
+	def FetchRouteToBase(soldier: Soldier, gameWorld: GameWorld, destination: Base) -> list:
+		if soldier.currentBase is None:
+			raise ValueError(f"Tried to fetch a route for soldier {soldier} when it didn't have a current base.")
+
+		return Utility.Base_BFS(soldier.currentBase, destination, gameWorld.bases)
+	
+	def FindNearestSoldier(faction: "Faction", base: "Base"):
+		pass
 	
 	def OrderMove(soldier: Soldier, gameWorld: GameWorld, destination: Base):
 		if not soldier.hasOrder and soldier.currentBase is not None:
@@ -331,7 +375,7 @@ class Game:
 		self.baseCollisionIndex = []
 		self.soldierCollisionIndex = []
 
-		self.dispatchedSoldiers = []
+		self.soldiers = []
 
 		self.nullFaction = None
 		self.elvesFaction = None
@@ -368,7 +412,7 @@ class Game:
 	def Update(self):
 		CollisionTester.ClearCollisions(self.mainCollisionIndex)
 		CollisionTester.UpdateCollisions(self.mainCollisionIndex)
-		SoldierAI.Update(self.elfSoldier, self)
+		SoldierAI.UpdatePosition(self.elfSoldier, self)
 
 
 	def Render(self):
