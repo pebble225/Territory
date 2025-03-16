@@ -35,13 +35,26 @@ class Faction(GameObject):
 		self.name = name
 		self.innerColor = innerColor
 		self.outerColor = outerColor
-		self.bases = []
-		self.soldiers = []
-		self.tasks = []
 	
-	def GetUnownedAdjacentBases(self, gameInstance: "Game"):
+	def Update(self):
+		allBases = self.GetBases()
+		ownedBases = self.GetOwnedBases(allBases)
+		unownedAdjacentBases = self.GetUnownedAdjacentBases(ownedBases)
+		allSoldiers = self.GetAllSoldiers()
+		allSelfSoldiers = self.GetAllSelfSoldiers(allSoldiers)
+		availableSoldiers = self.GetAvailableSoldiers2(allSelfSoldiers)
+		allTasks = self.GetAllSelfTasks(allSelfSoldiers)
+		allBasesWithCaptureTask = self.GetAllCaptureTaskBases(allTasks)
+		unownedAdjacentTasklessBases = Utility.RemoveAllBFromA(unownedAdjacentBases, allBasesWithCaptureTask)
+
+		if len(availableSoldiers) > 0 and len(unownedAdjacentTasklessBases) > 0:
+			soldier = availableSoldiers[random.randrange(0, len(availableSoldiers))]
+			base = unownedAdjacentTasklessBases[random.randrange(0, len(unownedAdjacentTasklessBases))]
+			self.AssignClaimTask(soldier, base, self.gameInstance)
+	
+	def GetUnownedAdjacentBases(self, ownedBases: list["Base"]):
 		bases = []
-		for base in self.bases:
+		for base in ownedBases:
 			if base.north is not None and base.north.faction != self and base.north not in bases:
 				bases.append(base.north)
 			if base.east is not None and base.east.faction != self and base.east not in bases:
@@ -55,40 +68,51 @@ class Faction(GameObject):
 	def AssignClaimTask(self, soldier: "Soldier", base: "Base", gameInstance: "Game"):
 		task = Task.CaptureBase(soldier, base, gameInstance.gameWorld.bases, gameInstance)
 		soldier.currentTask = task
-		self.tasks.append(task)
 	
 	def CreateSoldier(self):
-		i = random.randrange(0, len(self.bases))
+		ownedBases = self.GetOwnedBases(self.GetBases())
 
-		soldier = Soldier(self, self.bases[i], self.gameInstance)
-		self.soldiers.append(soldier)
+		i = random.randrange(0, len(ownedBases))
+
+		soldier = Soldier(self, ownedBases[i], self.gameInstance)
 		self.gameInstance.instance.append(soldier)
 	
-	def Update(self):
-		unownedAdjacentBases = self.GetUnownedAdjacentBases(self.gameInstance)
-		availableSoldiers = self.GetAvailableSoldiers()
-		basesBeingCaptured = self.GetAllCaptureTaskBases()
-		unownedAdjacentUnclaimedBases = Utility.RemoveAllBFromA(unownedAdjacentBases, basesBeingCaptured)
-
-		if len(availableSoldiers) > 0 and len(unownedAdjacentUnclaimedBases) > 0:
-			soldier = availableSoldiers[random.randrange(0, len(availableSoldiers))]
-			base = unownedAdjacentUnclaimedBases[random.randrange(0, len(unownedAdjacentUnclaimedBases))]
-			self.AssignClaimTask(soldier, base, self.gameInstance)
+	def GetBases(self):
+		return [i for i in self.gameInstance.instance if isinstance(i, Base)]
 	
-	def GetAvailableSoldiers(self):
-		soldiers = []
+	def GetOwnedBases(self, allBases: list["Base"]) -> list["Base"]:
+		return [i for i in allBases if isinstance(i, Base) and i.faction == self]
+
+	def GetAvailableSoldiers(self, selfSoldiers: list["Soldier"]) -> list["Soldier"]:
+		selfSoldiers = []
 		for soldier in self.soldiers:
 			if not soldier.HasTask():
-				soldiers.append(soldier)
-		return soldiers
+				selfSoldiers.append(soldier)
+		return selfSoldiers
 	
-	def GetAllCaptureTaskBases(self):
+	def GetAvailableSoldiers2(self, soldiers: list["Soldier"]) -> list["Soldier"]:
+		return [i for i in soldiers if not i.HasTask()]
+
+	def GetAllSoldiers(self) -> list["Soldier"]:
+		return [i for i in self.gameInstance.instance if isinstance(i, Soldier)]
+
+	def GetAllSelfSoldiers(self, soldiers: list["Soldier"]) -> list["Soldier"]:
+		return [i for i in soldiers if i.faction == self]
+
+	def GetAllSelfTasks(self, selfSoldiers: list["Soldier"]) -> list["Task"]:
+		tasks = []
+		for soldier in selfSoldiers:
+			if soldier.HasTask():
+				tasks.append(soldier.currentTask)
+		return tasks
+	
+	def GetAllCaptureTaskBases(self, selfTasks: list["Task"]) -> list["Base"]:
 		bases = []
 
-		for task in self.tasks:
+		for task in selfTasks:
 			if task.type == Task.CAPTURE:
 				if task.base in bases:
-					raise Exception(f"Found a duplicate capture task when logging all capture tasks for faction: {self.name}.")
+					raise Exception(f"Found a duplicate capture task when logging all capture tasks for faction: {self.name}. This means more than one soldier was assigned to capture the same base.")
 				else:
 					bases.append(task.base)
 		
@@ -109,10 +133,11 @@ class Base(PhysicalGameObject):
 		self.west = None
 	
 	def AssignToFaction(self, faction: Faction):
-		self.faction.bases.remove(self)
 		self.faction = faction
-		faction.bases.append(self)
 	
+	def Render(self):
+		Renderer.RenderBase(self.gameInstance.window, self.gameInstance.dim, self)
+
 	def GetPathToBase(self, end: "Base", bases: list["Base"]):
 		searchQueue = deque()
 		searched = []
@@ -172,7 +197,6 @@ class Task(GameObject):
 		if self.soldier == None or self.faction == None:
 			raise TypeError(f"Task {self} could not be deallocated. Needs existing soldier and faction.")
 		self.soldier.currentTask = None
-		self.faction.tasks.remove(self)
 
 	def GetBase(self):
 		return self.base
@@ -187,7 +211,7 @@ class Task(GameObject):
 class Soldier(PhysicalGameObject):
 	outerSize = 20
 	innerSize = 14
-	moveSpeed = 2
+	moveSpeed = 1
 
 	def __init__(self, faction: Faction, currentBase: Base, gameInstance: "Game"):
 		PhysicalGameObject.__init__(self, [10, 10], gameInstance)
@@ -198,7 +222,6 @@ class Soldier(PhysicalGameObject):
 		self.velocity = [0.0, 0.0]
 	
 	def Update(self):
-
 		if self.IsStationedAtBase():
 			self.SetPositionToCurrentBase()
 			if self.HasTask():
@@ -211,6 +234,9 @@ class Soldier(PhysicalGameObject):
 			self.UpdatePositionToVelocity()
 			if self.IsCollidingWithNextBase():
 				self.SetToTargetBase()
+	
+	def Render(self):
+		Renderer.RenderSoldier(self.gameInstance.window, self.gameInstance.dim, self)
 	
 	def HasTask(self):
 		return self.currentTask is not None
@@ -245,8 +271,9 @@ class Soldier(PhysicalGameObject):
 		return Utility.Base_BFS(self.currentBase, destination, gameWorld.bases)
 
 
-class GameWorld:
-	def __init__(self):
+class GameWorld(GameObject):
+	def __init__(self, gameInstance):
+		GameObject.__init__(self, gameInstance)
 		self.bases = []
 		self.w = None
 		self.h = None
@@ -343,8 +370,8 @@ class GameGenerator:
 				y2 = float(y) * GameGenerator.baseOffset - GameGenerator.baseOffset * h / 2
 
 				base.pos = [x2, y2]
-				gameInstance.nullFaction.bases.append(base)
 				world.bases.append(base)
+				gameInstance.instance.append(base)
 	
 	def GenerateGridConnections(world: GameWorld):
 		for y in range(0, world.h, 1):
@@ -354,13 +381,6 @@ class GameGenerator:
 				base.east = world.GetBase(x+1, y)
 				base.south = world.GetBase(x, y+1)
 				base.west = world.GetBase(x-1, y)
-	
-	# intentionally not in Task class to prevent from calling
-	def DestroyTask(task: "Task"):
-		if task.soldier == None or task.faction == None:
-			raise TypeError(f"Task {task} could not be deallocated. Needs existing soldier and faction.")
-		task.soldier.currentTask = None
-		task.faction.tasks.remove(task)
 
 
 class Game:
@@ -389,7 +409,7 @@ class Game:
 		self.elvesFaction = Faction(self, "Elves", [130, 80, 30], [25, 130, 40])
 		self.dwarvesFaction = Faction(self, "Dwarves", [120, 20, 20], [50, 50, 50])
 
-		self.gameWorld = GameWorld()
+		self.gameWorld = GameWorld(self)
 
 		GameGenerator.GenerateBases(self.gameWorld, self.dim, self, 10, 10)
 		GameGenerator.GenerateGridConnections(self.gameWorld)
@@ -416,9 +436,12 @@ class Game:
 		self.window.fill((0, 0, 0))
 		
 		Renderer.SimpleRenderBaseConnections(self.window, self.dim, self.gameWorld)
-		Renderer.RenderGameWorld(self.window, self.dim, self.gameWorld)
+		#Renderer.RenderGameWorld(self.window, self.dim, self.gameWorld)
 
-		Renderer.RenderFactionSoldiers(self, self.elvesFaction)
+		for obj in self.instance:
+			obj.Render()
+
+		#Renderer.RenderFactionSoldiers(self, self.elvesFaction)
 
 		#Renderer.RenderCollisionBoxes(self.window, self)
 
