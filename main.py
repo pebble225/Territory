@@ -80,12 +80,13 @@ class Base:
 		self.transform = Transform()
 		self.index = index
 		self.faction = faction
-		self.collisionBox = CollisionBox(self, (-Base.collisionSize/2, -Base.collisionSize/2), (Base.collisionSize, Base.collisionSize), gameInstance.mainCollisionIndex)
-		gameInstance.baseCollisionIndex.append(self.collisionBox)
 		self.north = None
 		self.south = None
 		self.east = None
 		self.west = None
+	
+	def GetCollisionRect(self):
+		return pygame.Rect(self.transform.pos[0] - self.collisionSize//2, self.transform.pos[1] - self.collisionSize//2, self.collisionSize, self.collisionSize)
 
 
 class GameWorld:
@@ -150,12 +151,6 @@ class Task:
 	def SetDestroy(self, gameInstance: "Game"):
 		self.destroyFlag = True
 		gameInstance.taskDestroyQueue.append(self)
-
-	def Destroy(self):
-		if self.soldier == None or self.faction == None:
-			raise TypeError(f"Task {self} could not be deallocated. Needs existing soldier and faction.")
-		self.soldier.currentTask = None
-		self.faction.tasks.remove(self)
 	
 	def GetBase(self):
 		return self.base
@@ -198,9 +193,6 @@ class Soldier:
 		self.nextBase = None
 		self.currentTask = None
 		self.velocity = [0.0, 0.0]
-		self.baseRoute = []
-		self.collisionBox = CollisionBox(self, (-Soldier.collisionSize/2, -Soldier.collisionSize/2), (Soldier.collisionSize, Soldier.collisionSize), gameInstance.mainCollisionIndex)
-		gameInstance.soldierCollisionIndex.append(self.collisionBox)
 	
 	def Update(self, gameInstance: "Game"):
 		if self.IsStationedAtBase():
@@ -213,14 +205,14 @@ class Soldier:
 					self.currentTask.SetDestroy(gameInstance)
 		else:
 			self.UpdatePositionToVelocity()
-			if self.IsCollidingWithNextBase():
+			if self.IsCollidingWithNextBase2():
 				self.SetToTargetBase()
 	
+	def GetCollisionRect(self):
+		return pygame.Rect(self.transform.pos[0] - self.collisionSize//2, self.transform.pos[1] - self.collisionSize//2, self.collisionSize, self.collisionSize)
+
 	def HasTask(self):
 		return self.currentTask is not None
-	
-	def HasBasesToTravel(self):
-		return len(self.baseRoute) > 0
 	
 	def IsStationedAtBase(self):
 		return self.currentBase is not None
@@ -228,14 +220,8 @@ class Soldier:
 	def IsCollidingWithNextBase(self):
 		return self.nextBase.collisionBox in self.collisionBox.collisions
 	
-	def SetTravelToNextBaseInQueue(self):
-		base = self.baseRoute.pop(0)
-		self.currentBase = None
-		self.nextBase = base
-		distanceX = base.transform.pos[0] - self.transform.pos[0]
-		distanceY = base.transform.pos[1] - self.transform.pos[1]
-		distance = sqrt(distanceX*distanceX + distanceY*distanceY)
-		self.velocity = [distanceX/distance * Soldier.moveSpeed, distanceY/distance * Soldier.moveSpeed]
+	def IsCollidingWithNextBase2(self):
+		return self.GetCollisionRect().colliderect(self.nextBase.GetCollisionRect())
 	
 	def SetTravelToNextTaskBase(self):
 		base = self.currentTask.baseRoute.popleft()
@@ -259,31 +245,6 @@ class Soldier:
 	
 	def FetchRouteToBase(self, gameWorld, destination):
 		return Utility.Base_BFS(self.currentBase, destination, gameWorld.bases)
-	
-	def OrderMove(self, gameWorld: GameWorld, destination: Base):
-		if self.IsStationedAtBase():
-			self.baseRoute = self.FetchRouteToBase(gameWorld, destination)
-			self.baseRoute.pop(0)
-
-
-class CollisionBox:
-	def __init__(self, parent, pos: tuple[float, float], scale: tuple[float, float], index: list["CollisionBox"]):
-		if parent.transform is None:
-			raise LookupError(f"CollisionBox {self} does not have a valid parent transform.")
-
-		self.transform = Transform()
-		# don't assign writable list to a tuple
-		self.transform.pos = [pos[0], pos[1]]
-		self.transform.scale = [scale[0], scale[1]]
-		self.parent = parent
-		self.collisions = []
-
-		index.append(self)
-	
-	def transformRelativeOwner(self):
-		if self.parent.transform is None:
-			raise LookupError(f"CollisionBox {self} does not have a valid parent transform. Can't retrieve transform relative to owner.")
-		return self.transform.anchor(self.parent.transform)
 
 
 class Renderer:
@@ -308,7 +269,7 @@ class Renderer:
 		for soldier in faction.soldiers:
 			Renderer.RenderSoldier(gameInstance.window, gameInstance.dim, soldier)
 
-	def DumbRenderBaseConnections(window, dim: tuple[int, int], world: GameWorld):
+	def SimpleRenderBaseConnections(window, dim: tuple[int, int], world: GameWorld):
 		lineThickness = 10
 
 		for i in range(0, len(world.bases), 1):
@@ -376,35 +337,6 @@ class Utility:
 		return [i for i in a if i not in b]
 
 
-class CollisionTester:
-	def hasCollision(boxA: CollisionBox, boxB: CollisionBox):
-		if boxA.parent.transform is None:
-			print(f"{boxA} requires a valid parent transform to test collisions.")
-			exit()
-		elif boxB.parent.transform is None:
-			print(f"{boxB} requires a valid parent transform to test collisions.")
-			exit()
-
-		boxAGlobalTransform = boxA.transform.anchor(boxA.parent.transform)
-		boxBGlobalTransform = boxB.transform.anchor(boxB.parent.transform)
-		
-		rectA = pygame.Rect((boxAGlobalTransform.pos[0], boxAGlobalTransform.pos[1], boxAGlobalTransform.scale[0], boxAGlobalTransform.scale[1]))
-		rectB = pygame.Rect((boxBGlobalTransform.pos[0], boxBGlobalTransform.pos[1], boxBGlobalTransform.scale[0], boxBGlobalTransform.scale[1]))
-
-		return rectA.colliderect(rectB)
-
-	def ClearCollisions(collisionBoxes: list[CollisionBox]):
-		for box in collisionBoxes:
-			box.collisions = []
-
-	def UpdateCollisions(collisionBoxes: list[CollisionBox]):
-		for i in range(0, len(collisionBoxes) - 1, 1): #not testing the last member
-			for j in range(i + 1, len(collisionBoxes), 1):
-				if CollisionTester.hasCollision(collisionBoxes[i], collisionBoxes[j]):
-					collisionBoxes[i].collisions.append(collisionBoxes[j])
-					collisionBoxes[j].collisions.append(collisionBoxes[i])
-
-
 class GameGenerator:
 	baseOffset = 80
 	
@@ -433,6 +365,7 @@ class GameGenerator:
 				base.west = world.GetBase(x-1, y)
 
 
+# TODO: Put AssignBase inside of the Base class
 class BaseOwnershipManager:
 	def AssignBase(base: Base, faction: Faction):
 		base.faction.bases.remove(base)
@@ -441,10 +374,17 @@ class BaseOwnershipManager:
 
 
 class Deallocator:
-	def DestroyTasks(gameInstance: "Game"):
+	def DestroyMarkedTasks(gameInstance: "Game"):
 		while len(gameInstance.taskDestroyQueue) > 0:
 			task = gameInstance.taskDestroyQueue.popleft()
-			task.Destroy()
+			Deallocator.DestroyTask(task)
+	
+	# intentionally not in Task class to prevent from calling
+	def DestroyTask(task: "Task"):
+		if task.soldier == None or task.faction == None:
+			raise TypeError(f"Task {task} could not be deallocated. Needs existing soldier and faction.")
+		task.soldier.currentTask = None
+		task.faction.tasks.remove(task)
 
 
 class Game:
@@ -454,10 +394,6 @@ class Game:
 		self.dim = (1600, 900)
 
 		self.gameTime = 0
-
-		self.mainCollisionIndex = []
-		self.baseCollisionIndex = []
-		self.soldierCollisionIndex = []
 
 		self.soldiers = []
 
@@ -482,9 +418,8 @@ class Game:
 		BaseOwnershipManager.AssignBase(self.gameWorld.GetBase(0, 9), self.elvesFaction)
 		BaseOwnershipManager.AssignBase(self.gameWorld.GetBase(9, 9), self.dwarvesFaction)
 
-		self.elvesFaction.CreateSoldier(self)
-		self.elvesFaction.CreateSoldier(self)
-		self.elvesFaction.CreateSoldier(self)
+		for i in range(0, 10, 1):
+			self.elvesFaction.CreateSoldier(self)
 		
 		#self.elvesFaction.AssignClaimTask(self.elfSoldier, self.gameWorld.GetBase(7, 4), self)
 
@@ -494,16 +429,14 @@ class Game:
 				self.running = False
 
 	def Update(self):
-		CollisionTester.ClearCollisions(self.mainCollisionIndex)
-		CollisionTester.UpdateCollisions(self.mainCollisionIndex)
 		self.elvesFaction.Update(self)
-		Deallocator.DestroyTasks(self)
+		Deallocator.DestroyMarkedTasks(self)
 
 
 	def Render(self):
 		self.window.fill((0, 0, 0))
 		
-		Renderer.DumbRenderBaseConnections(self.window, self.dim, self.gameWorld)
+		Renderer.SimpleRenderBaseConnections(self.window, self.dim, self.gameWorld)
 		Renderer.RenderGameWorld(self.window, self.dim, self.gameWorld)
 
 		Renderer.RenderFactionSoldiers(self, self.elvesFaction)
