@@ -92,6 +92,37 @@ class Base:
 		self.faction.bases.remove(self)
 		self.faction = faction
 		faction.bases.append(self)
+	
+	def GetPathToBase(self, end: "Base", bases: list["Base"]):
+		searchQueue = deque()
+		searched = []
+		paths = {}
+		paths[self] = [self]
+		searchQueue.append(self)
+		for i in range(0, len(bases), 1):
+			base = searchQueue.popleft()
+			if base == end:
+				output = deque(paths[base])
+				output.popleft()
+				return output
+			if base.north is not None and base.north not in searched:
+				paths[base.north] = paths[base] + [base.north]
+				searched.append(base.north)
+				searchQueue.append(base.north)
+			if base.east is not None and base.east not in searched:
+				paths[base.east] = paths[base] + [base.east]
+				searched.append(base.east)
+				searchQueue.append(base.east)
+			if base.south is not None and base.south not in searched:
+				paths[base.south] = paths[base] + [base.south]
+				searched.append(base.south)
+				searchQueue.append(base.south)
+			if base.west is not None and base.west not in searched:
+				paths[base.west] = paths[base] + [base.west]
+				searched.append(base.west)
+				searchQueue.append(base.west)
+		return []
+
 
 
 class GameWorld:
@@ -143,13 +174,13 @@ class Task:
 
 		self.destroyFlag = False
 	
-	def CaptureBase(soldier: "Soldier", base: "Base", gameInstance: "Game"):
+	def CaptureBase(soldier: "Soldier", base: "Base", bases: list["Base"]):
 		task = Task()
 		task.faction = soldier.faction
 		task.soldier = soldier
 		task.type = Task.CAPTURE
 		task.base = base
-		task.baseRoute = Utility.GetBasePath(soldier.currentBase, base, gameInstance)
+		task.baseRoute = soldier.currentBase.GetPathToBase(base, bases)
 
 		return task
 
@@ -308,36 +339,7 @@ class Renderer:
 
 
 class Utility:
-	def GetBasePath(start: Base, end: Base, bases: list["Base"]):
-		searchQueue = deque()
-		searched = []
-		paths = {}
-		paths[start] = [start]
-		searchQueue.append(start)
-		for i in range(0, len(bases), 1):
-			base = searchQueue.popleft()
-			if base == end:
-				output = deque(paths[base])
-				output.popleft()
-				return output
-			if base.north is not None and base.north not in searched:
-				paths[base.north] = paths[base] + [base.north]
-				searched.append(base.north)
-				searchQueue.append(base.north)
-			if base.east is not None and base.east not in searched:
-				paths[base.east] = paths[base] + [base.east]
-				searched.append(base.east)
-				searchQueue.append(base.east)
-			if base.south is not None and base.south not in searched:
-				paths[base.south] = paths[base] + [base.south]
-				searched.append(base.south)
-				searchQueue.append(base.south)
-			if base.west is not None and base.west not in searched:
-				paths[base.west] = paths[base] + [base.west]
-				searched.append(base.west)
-				searchQueue.append(base.west)
-		return []
-
+	#general list function. Unsure where to put this
 	def RemoveAllBFromA(a: list, b: list):
 		return [i for i in a if i not in b]
 
