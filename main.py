@@ -87,6 +87,11 @@ class Base:
 	
 	def GetCollisionRect(self):
 		return pygame.Rect(self.transform.pos[0] - self.collisionSize//2, self.transform.pos[1] - self.collisionSize//2, self.collisionSize, self.collisionSize)
+	
+	def AssignToFaction(self, faction: Faction):
+		self.faction.bases.remove(self)
+		self.faction = faction
+		faction.bases.append(self)
 
 
 class GameWorld:
@@ -201,7 +206,7 @@ class Soldier:
 				if self.currentTask.HasNextBase():
 					self.SetTravelToNextTaskBase()
 				else:
-					BaseOwnershipManager.AssignBase(self.currentTask.base, self.faction)
+					self.currentBase.AssignToFaction(self.faction)
 					self.currentTask.SetDestroy(gameInstance)
 		else:
 			self.UpdatePositionToVelocity()
@@ -365,14 +370,6 @@ class GameGenerator:
 				base.west = world.GetBase(x-1, y)
 
 
-# TODO: Put AssignBase inside of the Base class
-class BaseOwnershipManager:
-	def AssignBase(base: Base, faction: Faction):
-		base.faction.bases.remove(base)
-		base.faction = faction
-		faction.bases.append(base)
-
-
 class Deallocator:
 	def DestroyMarkedTasks(gameInstance: "Game"):
 		while len(gameInstance.taskDestroyQueue) > 0:
@@ -415,8 +412,8 @@ class Game:
 		GameGenerator.GenerateBases(self.gameWorld, self.dim, self, 10, 10)
 		GameGenerator.GenerateGridConnections(self.gameWorld)
 
-		BaseOwnershipManager.AssignBase(self.gameWorld.GetBase(0, 9), self.elvesFaction)
-		BaseOwnershipManager.AssignBase(self.gameWorld.GetBase(9, 9), self.dwarvesFaction)
+		self.gameWorld.GetBase(0,9).AssignToFaction(self.elvesFaction)
+		self.gameWorld.GetBase(9,9).AssignToFaction(self.dwarvesFaction)
 
 		for i in range(0, 10, 1):
 			self.elvesFaction.CreateSoldier(self)
